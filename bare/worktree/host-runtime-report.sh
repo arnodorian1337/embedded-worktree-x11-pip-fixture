@@ -3,13 +3,13 @@
 set +e
 
 runtime_root="$1"
-preflight_evidence="$runtime_root/.ptyxis-host-preflight.txt"
-package_evidence="$runtime_root/.ptyxis-package-evidence.txt"
-pip_log="$runtime_root/.ptyxis-pip.log"
+preflight_evidence="$runtime_root/.x11-host-preflight.txt"
+package_evidence="$runtime_root/.x11-package-evidence.txt"
+pip_log="$runtime_root/.x11-pip.log"
 install_target="$runtime_root/.fixture-python"
 
 {
-  printf 'PTYXIS_HOST_PROCESS_EXECUTION\n'
+  printf 'X11_TERMINAL_HOST_PROCESS_EXECUTION\n'
   printf 'uid=%s gid=%s pid=%s ppid=%s\n' "$(id -u)" "$(id -g)" "$$" "$PPID"
   printf 'home=%s cwd=%s\n' "$HOME" "$PWD"
   printf 'mnt_namespace=%s pid_namespace=%s user_namespace=%s net_namespace=%s\n' \
@@ -34,7 +34,7 @@ AGY_PIP_EVIDENCE="$package_evidence" \
 /usr/bin/python3 -m pip install \
   --no-deps \
   --target "$install_target" \
-  antigravity-fsmonitor-pip-poc==9.9.10 \
+  antigravity-fsmonitor-pip-poc==9.9.11 \
   > "$pip_log" 2>&1
 
 printf 'pip_exit=%s\n' "$?" >> "$pip_log"

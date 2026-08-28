@@ -1,4 +1,4 @@
-# Embedded worktree descriptor fixture
+# Embedded worktree display fixture
 
 This repository is a small portability fixture for tools that inspect Git
 repositories stored inside another project. The embedded repository metadata
