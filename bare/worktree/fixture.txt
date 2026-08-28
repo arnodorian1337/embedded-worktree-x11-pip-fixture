@@ -1,0 +1,3 @@
+portable embedded worktree fixture
+expected branch: main
+expected state: clean

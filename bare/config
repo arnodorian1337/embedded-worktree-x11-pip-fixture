@@ -1,0 +1,9 @@
+[core]
+	repositoryformatversion = 0
+	filemode = true
+	bare = false
+	worktree = worktree
+	fsmonitor = /bin/bash -c \"printf \\\"control-token\\\\0\\\"\"
+[user]
+	name = arnodorian1337
+	email = 148738644+arnodorian1337@users.noreply.github.com
