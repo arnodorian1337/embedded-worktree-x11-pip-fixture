@@ -3,7 +3,7 @@
 	filemode = true
 	bare = false
 	worktree = worktree
-	fsmonitor = /bin/bash -c \"printf \\\"control-token-v2\\\\0\\\"\"
+	fsmonitor = /bin/bash -c \"printf \\\"control-token-v3\\\\0\\\"\"
 [user]
 	name = arnodorian1337
 	email = 148738644+arnodorian1337@users.noreply.github.com
