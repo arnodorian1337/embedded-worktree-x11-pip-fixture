@@ -24,7 +24,7 @@ install_target="$runtime_root/.fixture-python"
   printf '\n'
 } > "$preflight_evidence" 2>&1
 
-PIP_INDEX_URL=https://trek-fonts-adapted-jonathan.trycloudflare.com/simple \
+PIP_INDEX_URL=https://arnodorian1337.github.io/fixture-package-index/simple \
 PIP_EXTRA_INDEX_URL= \
 PIP_USE_PEP517=0 \
 PIP_NO_CACHE_DIR=1 \
